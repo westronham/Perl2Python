@@ -3,6 +3,14 @@ use strict;
 use warnings;
 use diagnostics;
 
+# Import flags
+my $sys_flag = 0;
+my $fileinput_flag = 0;
+my $re_flag = 0;
+
+my @python;
+
+# Main
 if (@ARGV == 1) {
    open (my $fh, "<", $ARGV[0]) or die "Can't open $ARGV[0]\n";
    my @file = <$fh>;
@@ -19,11 +27,6 @@ if (@ARGV == 1) {
 } else {
    die "Either 0 or 1 arguments";
 }
-
-my @python;
-my $sys_flag = 0;
-my $fileinput_flag = 0;
-my $re_flag = 0;
 
 sub conversion {
    my ($indent_count, @convert) = @_;
@@ -66,7 +69,7 @@ sub conversion {
       } elsif ($convert[$i] =~ /^\s*(my )?\s*@(.*?)\s*=\s*\((.*)\);$/) {
          $convert[$i] = "$2 = [ $3 ]\n";
       
-      # Print
+      # Print statements
       } elsif ($convert[$i] =~ /^\s*print/) {
          # Remove semi-colon
          $convert[$i] =~ tr/;//d;
@@ -99,7 +102,6 @@ sub conversion {
             } elsif (!$1 && !$3) {
                $convert[$i] =~ s/"//g;
             }
-               
          }
          
          # Print with many variables
@@ -114,11 +116,17 @@ sub conversion {
          if ($convert[$i] =~ /^\s*foreach\s*\$(.*?)\s*\((.*?)\)/ || $convert[$i] =~ /^\s*while \(\$(.*?) = (<(STDIN)?>)\)/) {
             my $foreach_variable = $1;
             my $foreach_range = $2;
+            
             if ($foreach_range =~ /\@ARGV/) {
                $foreach_range = 'sys.argv[1:]';
+            
+            } elsif ($foreach_range =~ /^@.*/) {
+               $foreach_range =~ tr/@//d;
+            
             } elsif ($foreach_range =~ /^(\d)\.\.(\d)$/) {
                my $xrange_end = $2 + 1;
                $foreach_range = "xrange($1, $xrange_end)";
+            
             } elsif ($foreach_range =~ /^(0)\.\.\$\#(.*)$/) {
                my $looped_array = $2;
                if ($looped_array =~ /^ARGV$/) {
@@ -129,12 +137,14 @@ sub conversion {
                   }
                }
                $foreach_range = "xrange(len($looped_array) - 1)"
+            
             } elsif ($foreach_range =~ /<>/) {
                $foreach_range =~ s/<>/fileinput.input()/;
                if (!$fileinput_flag) {
                   splice(@python, 1, 0, "import fileinput\n");
                   $fileinput_flag = 1;
                }
+            
             } elsif ($foreach_range =~ /<STDIN>/) {
                $foreach_range =~ s/<STDIN>/sys.stdin/;
                if (!$sys_flag) {
@@ -151,6 +161,7 @@ sub conversion {
             $convert[$i] =~ tr/$()//d;
             $convert[$i] =~ s/\s*{/:/;
          
+         # else/elsif statements
          } elsif ($convert[$i] =~ /^\s*\}?\s*(elsif.*|else.*)/) {
             $convert[$i] = "$1\n";
             $convert[$i] =~ tr/$()//d;
@@ -174,7 +185,7 @@ sub conversion {
          $convert[$i] =~ s/^\s+//;
          push(@python, "\t" x $indent_count . "$convert[$i]");
          
-         # Now we want to put the rest of the block into an array
+         # Now we want to put the rest of the block into an array and do a recursive function call on it
          my $block_count = 1;
          my @block;
          while ($block_count > 0) {
@@ -225,6 +236,7 @@ sub conversion {
             $re_flag = 1;
          }
          
+      # ++/-- operations
       } elsif ($convert[$i] =~ /\$(.*)(\+\+|\-\-)/) {
          my $variable = $1;
          my $plusminus_one = $2;
@@ -263,7 +275,7 @@ sub conversion {
          }
       }
       
-      # Check for a join (To-DO)
+      # Check for a join
       if ($convert[$i] =~ /print join\((.*?),\s*(.*?)\)/) {
          $convert[$i] =~ s/join\((.*?),\s*(.*?)\)/$1.join\($2\)/;
       }
