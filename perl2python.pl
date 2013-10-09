@@ -29,18 +29,15 @@ sub conversion {
       
       # #! line
       if ($convert[$i] =~ /^#!\//) {
-         #$convert[$i] =~ s/^\s+//;
-		   $convert[$i] = "\t" x $indent_count . "#!/usr/bin/python2.7 -u\n";
-		   #push(@python, "\t" x $indent_count . "#!/usr/bin/python2.7 -u\n");
+		   $convert[$i] = "#!/usr/bin/python2.7 -u\n";
 	   
 	   # Blank lines & Comments
 	   } elsif ($convert[$i] =~ /^\s*#/ || $convert[$i] =~ /^\s*$/) {
-		   push(@python, "\t" x $indent_count . $convert[$i]);
 		   
 		# Constants
 		} elsif ($convert[$i] =~ /^\s*use constant (.*) => (.*);$/i) {
          my $constant = uc $1;
-		   push(@python, "\t" x $indent_count . "$constant = $2\n");
+		   $convert[$i] = "$constant = $2\n";
 		
 		# Variables
 	   } elsif ($convert[$i] =~ /^\s*(my )?[\$](.*) = (.*);$/) {
@@ -56,8 +53,7 @@ sub conversion {
 	         $value =~ tr/$//d;
 	      }
 	      
-	      $convert[$i] =~ s/^\s+//;
-	      push(@python, "\t" x $indent_count . "$varName = $value\n");
+         $convert[$i] = "$varName = $value\n";
       
       # Print
       } elsif ($convert[$i] =~ /^\s*print/) {
@@ -81,16 +77,6 @@ sub conversion {
             }
          }
          
-         # Check for a join
-         if ($convert[$i] =~ /print join\((.*?),\s*(.*?)\)/) {
-            my $join_list = $2;
-            if ($join_list eq '@ARGV') {
-               $join_list = 'sys.argv[1:]';
-               splice(@python, 1, 0, "import sys\n");
-            }
-            $convert[$i] =~ s/join\((.*?),\s*(.*?)\)/$1.join\($join_list\)/;
-         }
-         
          # We don't need quotations if there is only one scalar
          if ($convert[$i] =~ /"\$([\w\d_]*)\s*"$/) {
             $convert[$i] =~ s/"//g;
@@ -100,20 +86,26 @@ sub conversion {
          
          # Remove $ from scalars
          $convert[$i] =~ tr/$//d;
-         
-         $convert[$i] =~ s/^\s+//;
-         push(@python, "\t" x $indent_count . "$convert[$i]");
       
       # Loops   
       } elsif ($convert[$i] =~ /^\s*(if|while|for|foreach|elsif|else|unless)/) {
          
+         # If the statement begins with a }, push everything after to the next line and continue on
+         #if ($convert[$i] =~ /^\s*}\s*(elsif.*)$/ || $convert[$i] =~ /^\s*}\s*(else.*)$/) {
+         #   print "$1\n";
+          #  splice(@convert, $i, 1, "}\n");
+          #  splice(@convert, $i + 1, 0, "$1\n");
+         #}
          # If/while statement
-         if ($convert[$i] =~ /^\s*(if|while)/) {
+         if ($convert[$i] =~ /^\s*(if|while|elsif|else)/) {
             $convert[$i] =~ tr/$()//d;
             $convert[$i] =~ s/\s*{/:/;
-         }
          
-         # Elsif/else statements
+         } elsif ($convert[$i] =~ /^\s*\}?\s*(elsif|else)/) {
+            $convert[$i] =~ tr/$()//d;
+            $convert[$i] =~ s/\s*{/:/;
+            $convert[$i] =~ s/elsif/elif/;
+         }
          
          # For loop
          if ($convert[$i] =~ /^\s*for/) {
@@ -121,8 +113,16 @@ sub conversion {
          }
          
          # Foreach loop
-         if ($convert[$i] =~ /^\s*foreach\s*\$(.*?)\s*\(@(.*?)\)/) {
-            print "$1\n$2";
+         if ($convert[$i] =~ /^\s*foreach\s*\$(.*?)\s*\((.*?)\)/) {
+            my $foreach_variable = $1;
+            my $foreach_range = $2;
+            if ($foreach_range =~ /\@ARGV/) {
+               $foreach_range = 'sys.argv[1:]';
+            } elsif ($foreach_range =~ /^(\d)\.\.(\d)$/) {
+               my $xrange_end = $2 + 1;
+               $foreach_range = "xrange($1, $xrange_end)";
+            }
+            $convert[$i] = "for $foreach_variable in $foreach_range:\n";
          }
          
          # Change string comparison operators to make them compatible with Python
@@ -134,7 +134,7 @@ sub conversion {
          $convert[$i] =~ s/ le / <= /;
          
          $convert[$i] =~ s/^\s+//;
-         push(@python, "\t" x $indent_count . $convert[$i]);
+         push(@python, "\t" x $indent_count . "$convert[$i]");
          
          # Now we want to put the rest of the block into an array
          my $block_count = 1;
@@ -159,30 +159,42 @@ sub conversion {
          $convert[$i] =~ s/last/break/;
          $convert[$i] =~ tr/;//d;
          $convert[$i] =~ s/^\s+//;
-         push(@python, "\t" x $indent_count . "$convert[$i]");
       
       # next
       } elsif ($convert[$i] =~ /^\s*break/) {
          $convert[$i] =~ s/next/continue/;
          $convert[$i] =~ tr/;//d;
          $convert[$i] =~ s/^\s+//;
-         push(@python, "\t" x $indent_count . "$convert[$i]");
          
       # Chomp
       } elsif ($convert[$i] =~ /^\s*chomp (.*);$/) {
          my $chomp_var = $1;
          $chomp_var =~ tr/$//d;
-         push(@python, "\t" x $indent_count . "$chomp_var = $chomp_var.rstrip()\n");
+         $convert[$i] = "$chomp_var = $chomp_var.rstrip()\n";
       
+      # Lines we can't translate are turned into comments
       } else {
-	
-		   # Lines we can't translate are turned into comments
-		   if ($convert[$i] !~ /}/) {
-		      $convert[$i] =~ s/^\s+//;
-		      push(@python,"\t" x $indent_count . "# $convert[$i]");
-	      }
+         $convert[$i] = "# $convert[$i]";
       }
-      $convert[$i] =~ s/^\s+//;
+      
+      # Other stuff that applies to any kind of line
+      if ($convert[$i] =~ /\@ARGV/) {
+         $convert[$i] =~ s/\@ARGV/sys\.argv\[1\:\]/;
+         splice(@python, 1, 0, "import sys\n");
+      }
+      
+      # Check for a join (To-DO)
+      if ($convert[$i] =~ /print join\((.*?),\s*(.*?)\)/) {
+         $convert[$i] =~ s/join\((.*?),\s*(.*?)\)/$1.join\($2\)/;
+      }
+      
+      # Writing the transformed line to our Python array
+      if ($convert[$i] =~ /^\s*#?\s*}\s*/) {
+         next;
+      }
+      if ($convert[$i] !~ /^\s*$/) {
+         $convert[$i] =~ s/^\s+//;
+      }
       push(@python, "\t" x $indent_count . "$convert[$i]");
    }
    return @python;
