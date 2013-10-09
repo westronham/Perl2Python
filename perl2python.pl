@@ -29,8 +29,9 @@ sub conversion {
       
       # #! line
       if ($convert[$i] =~ /^#!\//) {
-         $convert[$i] =~ s/^\s+//;
-		   push(@python, "\t" x $indent_count . "#!/usr/bin/python2.7 -u\n");
+         #$convert[$i] =~ s/^\s+//;
+		   $convert[$i] = "\t" x $indent_count . "#!/usr/bin/python2.7 -u\n";
+		   #push(@python, "\t" x $indent_count . "#!/usr/bin/python2.7 -u\n");
 	   
 	   # Blank lines & Comments
 	   } elsif ($convert[$i] =~ /^\s*#/ || $convert[$i] =~ /^\s*$/) {
@@ -80,6 +81,16 @@ sub conversion {
             }
          }
          
+         # Check for a join
+         if ($convert[$i] =~ /print join\((.*?),\s*(.*?)\)/) {
+            my $join_list = $2;
+            if ($join_list eq '@ARGV') {
+               $join_list = 'sys.argv[1:]';
+               splice(@python, 1, 0, "import sys\n");
+            }
+            $convert[$i] =~ s/join\((.*?),\s*(.*?)\)/$1.join\($join_list\)/;
+         }
+         
          # We don't need quotations if there is only one scalar
          if ($convert[$i] =~ /"\$([\w\d_]*)\s*"$/) {
             $convert[$i] =~ s/"//g;
@@ -110,6 +121,9 @@ sub conversion {
          }
          
          # Foreach loop
+         if ($convert[$i] =~ /^\s*foreach\s*\$(.*?)\s*\(@(.*?)\)/) {
+            print "$1\n$2";
+         }
          
          # Change string comparison operators to make them compatible with Python
          $convert[$i] =~ s/ eq / == /;
@@ -168,6 +182,8 @@ sub conversion {
 		      push(@python,"\t" x $indent_count . "# $convert[$i]");
 	      }
       }
+      $convert[$i] =~ s/^\s+//;
+      push(@python, "\t" x $indent_count . "$convert[$i]");
    }
    return @python;
 }
