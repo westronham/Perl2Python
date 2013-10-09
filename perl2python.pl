@@ -36,12 +36,7 @@ sub conversion {
 	   
 	   # Blank lines & Comments
 	   } elsif ($convert[$i] =~ /^\s*#/ || $convert[$i] =~ /^\s*$/) {
-		   
-	   } elsif ($convert[$i] =~ /^\s*\}\s*(\S*)$/) {
-	      #splice(@convert, $i, 1, "}\n");
-	      splice(@convert, $i + 1, 0, "$1\n");
-	      $convert[$i] = "}";
-         print "$convert[$i]\n$convert[$i+1]\n";
+
 		   
 		# Constants
 		} elsif ($convert[$i] =~ /^\s*use constant (.*) => (.*);$/i) {
@@ -113,7 +108,7 @@ sub conversion {
          $convert[$i] =~ tr/$//d;
       
       # Loops   
-      } elsif ($convert[$i] =~ /^\s*(if|while|for|foreach|elsif|else|unless)/) {
+      } elsif ($convert[$i] =~ /(if|while|for|foreach|elsif|else|unless)/) {
          
          # Foreach loop
          if ($convert[$i] =~ /^\s*foreach\s*\$(.*?)\s*\((.*?)\)/ || $convert[$i] =~ /^\s*while \(\$(.*?) = (<(STDIN)?>)\)/) {
@@ -151,19 +146,13 @@ sub conversion {
             $convert[$i] = "for $foreach_variable in $foreach_range:\n";
          }
          
-         # If the statement begins with a }, push everything after to the next line and continue on
-         #if ($convert[$i] =~ /^\s*}\s*(elsif.*)$/ || $convert[$i] =~ /^\s*}\s*(else.*)$/) {
-         #  print "$1\n";
-         #   splice(@convert, $i, 1, "}\n");
-         #   splice(@convert, $i + 1, 0, "$1\n");
-         #}
          # If/while statement
-         if ($convert[$i] =~ /^\s*(if|while|elsif|else)/) {
+         if ($convert[$i] =~ /^\s*(if|while)/) {
             $convert[$i] =~ tr/$()//d;
             $convert[$i] =~ s/\s*{/:/;
          
-         } elsif ($convert[$i] =~ /^\s*\}?\s*(elsif|else)/) {
-            print "$1\n";
+         } elsif ($convert[$i] =~ /^\s*\}?\s*(elsif.*|else.*)/) {
+            $convert[$i] = "$1\n";
             $convert[$i] =~ tr/$()//d;
             $convert[$i] =~ s/\s*{/:/;
             $convert[$i] =~ s/elsif/elif/;
@@ -190,19 +179,20 @@ sub conversion {
          my @block;
          while ($block_count > 0) {
             $i++;
-            if ($convert[$i] =~ /\{/) {
-               $block_count++;
-            } elsif ($convert[$i] =~ /\}/) {
+            if ($convert[$i] && $convert[$i] =~ /\}/) {
                $block_count--;
+            } elsif ($convert[$i] && $convert[$i] =~ /\{/) {
+               $block_count++;
             }
-            push(@block, $convert[$i]);
+            if ($block_count) {
+               push(@block, $convert[$i]);
+            }
          }
-         
          $indent_count++;
-         #$convert[$i] =~ s/^\s+//;
          conversion($indent_count, @block);
          $indent_count--;
-         
+         redo;
+      
       # last
       } elsif ($convert[$i] =~ /^\s*last/) {
          $convert[$i] =~ s/last/break/;
