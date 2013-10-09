@@ -20,9 +20,11 @@ if (@ARGV == 1) {
    die "Either 0 or 1 arguments";
 }
 
+my @python;
+
 sub conversion {
    my ($indent_count, @convert) = @_;
-   my @python;
+   
    for (my $i = 0; $i <= $#convert; $i++) {
       
       # #! line
@@ -47,6 +49,7 @@ sub conversion {
 	      
 	      if ($value =~ /STDIN/i) {
 	         $value =~ s/$value/sys.stdin.readline()/;
+	         splice(@python, 1, 0, "import sys\n");
 	         
 	      } else {
 	         $value =~ tr/$//d;
