@@ -21,6 +21,7 @@ if (@ARGV == 1) {
 }
 
 my @python;
+my $sys_flag = 0;
 
 sub conversion {
    my ($indent_count, @convert) = @_;
@@ -47,7 +48,10 @@ sub conversion {
 	      
 	      if ($value =~ /STDIN/i) {
 	         $value =~ s/$value/sys.stdin.readline()/;
-	         splice(@python, 1, 0, "import sys\n");
+	         if (!$sys_flag) {
+	            splice(@python, 1, 0, "import sys\n");
+	            $sys_flag = 1;
+            }
 	         
 	      } else {
 	         $value =~ tr/$//d;
@@ -125,6 +129,10 @@ sub conversion {
                my $looped_array = $2;
                if ($looped_array =~ /^ARGV$/) {
                   $looped_array = "sys.argv";
+                  if (!$sys_flag) {
+                     splice(@python, 1, 0, "import sys\n");
+                     $sys_flag = 1;
+                  }
                }
                $foreach_range = "xrange(len($looped_array) - 1)"
             }
@@ -187,7 +195,25 @@ sub conversion {
       # Other stuff that applies to any kind of line
       if ($convert[$i] =~ /\@ARGV/) {
          $convert[$i] =~ s/\@ARGV/sys\.argv\[1\:\]/;
-         splice(@python, 1, 0, "import sys\n");
+         if ($sys_flag == 0) {
+            splice(@python, 1, 0, "import sys\n");
+            $sys_flag = 1;
+         }
+      }
+      
+      if ($convert[$i] =~ /ARGV/) {
+         if ($convert[$i] =~ /\@ARGV/) {
+            $convert[$i] =~ s/\@ARGV/sys\.argv\[1\:\]/;
+         } elsif ($convert[$i] =~ /ARGV\[(.*?)\]/) {
+            my $variable = $1;
+            $convert[$i] =~ s/ARGV\[.*?\]/sys.argv\[$variable + 1\]/;
+            $convert[$i] =~ tr/"//d;
+         }
+         
+         if (!$sys_flag) {
+            splice(@python, 1, 0, "import sys\n");
+            $sys_flag = 1;
+         }
       }
       
       # Check for a join (To-DO)
