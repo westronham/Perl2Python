@@ -6,13 +6,13 @@ use diagnostics;
 if (@ARGV == 1) {
    open (my $fh, "<", $ARGV[0]) or die "Can't open $ARGV[0]\n";
    my @file = <$fh>;
-   my @python = conversion(@file);
+   my @python = conversion(0, @file);
    foreach my $i (@python) {
       print $i;
    }
 } elsif (@ARGV == 0) {
    my @stdin = <>;
-   my @python = conversion(@stdin);
+   my @python = conversion(0, @stdin);
    foreach my $i (@python) {
       print $i;
    }
@@ -21,20 +21,21 @@ if (@ARGV == 1) {
 }
 
 sub conversion {
-   my @convert = @_;
+   my ($indent_count, @convert) = @_;
    my @python;
-   foreach my $line (@convert) {
+   for (my $i = 0; $i <= $#convert; $i++) {
       
       # #! line
-      if ($line =~ /^#!\//) {
-		   push(@python, "#!/usr/bin/python2.7 -u\n");
+      if ($convert[$i] =~ /^#!\//) {
+         $convert[$i] =~ s/^\s+//;
+		   push(@python, "\t" x $indent_count . "#!/usr/bin/python2.7 -u\n");
 	   
 	   # Blank lines & Comments
-	   } elsif ($line =~ /^\s*#/ || $line =~ /^\s*$/) {
-		   push(@python, $line);
+	   } elsif ($convert[$i] =~ /^\s*#/ || $convert[$i] =~ /^\s*$/) {
+		   push(@python, "\t" x $indent_count . $convert[$i]);
 		   
 		# Variables
-	   } elsif ($line =~ /^\s*(my )?[\$](.*) = (.*);$/) {
+	   } elsif ($convert[$i] =~ /^\s*(my )?[\$](.*) = (.*);$/) {
 	      
 	      my $varName = $2;
          my $value = $3;
@@ -46,84 +47,90 @@ sub conversion {
 	         $value =~ tr/$//d;
 	      }
 	      
-	      push(@python, "$varName = $value\n");
+	      $convert[$i] =~ s/^\s+//;
+	      push(@python, "\t" x $indent_count . "$varName = $value\n");
       
       # Print
-      } elsif ($line =~ /^\s*print/) {
-         
+      } elsif ($convert[$i] =~ /^\s*print/) {
          # Remove semi-colon
-         $line =~ tr/;//d;
+         $convert[$i] =~ tr/;//d;
          
          # Remove \n
-         if ($line =~ /\n/) {
+         if ($convert[$i] =~ /\n/) {
             
             # Remove lines that only print newline
-            if ($line =~ /^\s*print\s*"\\n"$/) {
+            if ($convert[$i] =~ /^\s*print\s*"\\n"$/) {
                next;
             
             # Remove newline that is appended after scalars
-            } elsif ($line =~ /, "\\n"/) {
-               $line =~ s/, "\\n"//g;
+            } elsif ($convert[$i] =~ /, "\\n"/) {
+               $convert[$i] =~ s/, "\\n"//g;
             
             # Remove newline from end of a string
-            } elsif ($line =~ /\\n"$/) {
-               $line =~ s/\\n"/"/g;
+            } elsif ($convert[$i] =~ /\\n"$/) {
+               $convert[$i] =~ s/\\n"/"/g;
             }
          }
          
          # We don't need quotations if there is only one scalar
-         if ($line =~ /"\$([\w\d_]*)\s*"$/) {
-            $line =~ s/"//g;
+         if ($convert[$i] =~ /"\$([\w\d_]*)\s*"$/) {
+            $convert[$i] =~ s/"//g;
          }
          
          # Print with many variables
          
          # Remove $ from scalars
-         $line =~ tr/$//d;
+         $convert[$i] =~ tr/$//d;
          
-         push(@python, "$line");
+         $convert[$i] =~ s/^\s+//;
+         push(@python, "\t" x $indent_count . "$convert[$i]");
       
       # Loops   
-      } elsif ($line =~ /^\s*(if|while|for|foreach|elsif|else|unless)/) {
+      } elsif ($convert[$i] =~ /^\s*(if|while|for|foreach|elsif|else|unless)/) {
          
          # If/while statement
-         if ($line =~ /^\s*(if|while)/) {
-            $line =~ tr/$()//d;
-            $line =~ s/\s*{/:/;
+         if ($convert[$i] =~ /^\s*(if|while)/) {
+            $convert[$i] =~ tr/$()//d;
+            $convert[$i] =~ s/\s*{/:/;
          }
          
          # Elsif/else statements
          
          # For loop
-         if ($line =~ /^\s*for/) {
+         if ($convert[$i] =~ /^\s*for/) {
          
          }
          
          # Foreach loop
          
-         push(@python, $line);
+         $convert[$i] =~ s/^\s+//;
+         push(@python, "\t" x $indent_count . $convert[$i]);
          
          # Now we want to put the rest of the block into an array
-         my $indent_count = 1;
+         my $block_count = 1;
          my @block;
-         while ($indent_count != 0) {
-            $line = shift @convert;
-            push(@block,$line);
-            if ($line =~ /{/) {
-               $indent_count += 1;
-            } elsif ($line =~ /}/) {
-               $indent_count -= 1;
+         while ($block_count > 0) {
+            $i++;
+            push(@block, $convert[$i]);
+            if ($convert[$i] =~ /{/) {
+               $block_count++;
+            } elsif ($convert[$i] =~ /}/) {
+               $block_count--;
             }
          }
-         foreach my $i (@block) {
-               print "BLOCK: $i";
-            }
+         
+         $indent_count++;
+         $convert[$i] =~ s/^\s+//;
+         push(@python, conversion($indent_count, @block));
+         $indent_count--;
       
       } else {
 	
 		   # Lines we can't translate are turned into comments
-		
-		   push(@python,"# $line");
+		   if ($convert[$i] !~ /}/) {
+		      $convert[$i] =~ s/^\s+//;
+		      push(@python,"\t" x $indent_count . "# $convert[$i]");
+	      }
       }
    }
    return @python;
