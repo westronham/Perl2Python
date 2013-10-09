@@ -34,6 +34,11 @@ sub conversion {
 	   } elsif ($convert[$i] =~ /^\s*#/ || $convert[$i] =~ /^\s*$/) {
 		   push(@python, "\t" x $indent_count . $convert[$i]);
 		   
+		# Constants
+		} elsif ($convert[$i] =~ /^\s*use constant (.*) => (.*);$/i) {
+         my $constant = uc $1;
+		   push(@python, "\t" x $indent_count . "$constant = $2\n");
+		
 		# Variables
 	   } elsif ($convert[$i] =~ /^\s*(my )?[\$](.*) = (.*);$/) {
 	      
@@ -41,7 +46,7 @@ sub conversion {
          my $value = $3;
 	      
 	      if ($value =~ /STDIN/i) {
-	         $value =~ s/$value/sys.stdin.readline()/
+	         $value =~ s/$value/sys.stdin.readline()/;
 	         
 	      } else {
 	         $value =~ tr/$//d;
@@ -103,6 +108,14 @@ sub conversion {
          
          # Foreach loop
          
+         # Change string comparison operators to make them compatible with Python
+         $convert[$i] =~ s/ eq / == /;
+         $convert[$i] =~ s/ ne / != /;
+         $convert[$i] =~ s/ gt / > /;
+         $convert[$i] =~ s/ lt / < /;
+         $convert[$i] =~ s/ ge / >= /;
+         $convert[$i] =~ s/ le / <= /;
+         
          $convert[$i] =~ s/^\s+//;
          push(@python, "\t" x $indent_count . $convert[$i]);
          
@@ -123,6 +136,26 @@ sub conversion {
          $convert[$i] =~ s/^\s+//;
          push(@python, conversion($indent_count, @block));
          $indent_count--;
+         
+      # last
+      } elsif ($convert[$i] =~ /^\s*last/) {
+         $convert[$i] =~ s/last/break/;
+         $convert[$i] =~ tr/;//d;
+         $convert[$i] =~ s/^\s+//;
+         push(@python, "\t" x $indent_count . "$convert[$i]");
+      
+      # next
+      } elsif ($convert[$i] =~ /^\s*break/) {
+         $convert[$i] =~ s/next/continue/;
+         $convert[$i] =~ tr/;//d;
+         $convert[$i] =~ s/^\s+//;
+         push(@python, "\t" x $indent_count . "$convert[$i]");
+         
+      # Chomp
+      } elsif ($convert[$i] =~ /^\s*chomp (.*);$/) {
+         my $chomp_var = $1;
+         $chomp_var =~ tr/$//d;
+         push(@python, "\t" x $indent_count . "$chomp_var = $chomp_var.rstrip()\n");
       
       } else {
 	
