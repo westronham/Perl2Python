@@ -37,13 +37,19 @@ sub conversion {
 	   # Blank lines & Comments
 	   } elsif ($convert[$i] =~ /^\s*#/ || $convert[$i] =~ /^\s*$/) {
 		   
+	   } elsif ($convert[$i] =~ /^\s*\}\s*(\S*)$/) {
+	      #splice(@convert, $i, 1, "}\n");
+	      splice(@convert, $i + 1, 0, "$1\n");
+	      $convert[$i] = "}";
+         print "$convert[$i]\n$convert[$i+1]\n";
+		   
 		# Constants
 		} elsif ($convert[$i] =~ /^\s*use constant (.*) => (.*);$/i) {
          my $constant = uc $1;
 		   $convert[$i] = "$constant = $2\n";
 		
 		# Scalar Variables
-	   } elsif ($convert[$i] =~ /^\s*(my )?[\$](.*) = (.*);$/) {
+	   } elsif ($convert[$i] =~ /^\s*(my )?\$(.*) = (.*);$/) {
 	      
 	      my $varName = $2;
          my $value = $3;
@@ -62,8 +68,8 @@ sub conversion {
          $convert[$i] = "$varName = $value\n";
          
       # Arrays
-      } elsif ($convert[$i] =~ /^\s*(my )?[\@](.*) = (.*);$/) {
-         
+      } elsif ($convert[$i] =~ /^\s*(my )?\s*@(.*?)\s*=\s*\((.*)\);$/) {
+         $convert[$i] = "$2 = [ $3 ]\n";
       
       # Print
       } elsif ($convert[$i] =~ /^\s*print/) {
@@ -86,10 +92,19 @@ sub conversion {
                $convert[$i] =~ s/\\n"/"/g;
             }
          }
-         
-         # We don't need quotations if there is only one scalar
-         if ($convert[$i] =~ /"\$([\w\d_]*)\s*"$/) {
-            $convert[$i] =~ s/"//g;
+
+         # String with only one scalar
+         if ($convert[$i] =~ /"([^\$]*)(\$\S*)\s*([^\$]*)"/) {
+            if ($1 && $3) {
+               $convert[$i] = "print \"$1\", $2, \"$3\"\n";
+            } elsif ($1 && !$3) {
+               $convert[$i] = "print \"$1\", $2\n";
+            } elsif (!$1 && $3) {
+               $convert[$i] = "print $2, \"$3\"\n";
+            } elsif (!$1 && !$3) {
+               $convert[$i] =~ s/"//g;
+            }
+               
          }
          
          # Print with many variables
@@ -101,7 +116,7 @@ sub conversion {
       } elsif ($convert[$i] =~ /^\s*(if|while|for|foreach|elsif|else|unless)/) {
          
          # Foreach loop
-         if ($convert[$i] =~ /^\s*foreach\s*\$(.*?)\s*\((.*?)\)/ || $convert[$i] =~ /^\s*while \(\$(.*?) = (<>)\)/) {
+         if ($convert[$i] =~ /^\s*foreach\s*\$(.*?)\s*\((.*?)\)/ || $convert[$i] =~ /^\s*while \(\$(.*?) = (<(STDIN)?>)\)/) {
             my $foreach_variable = $1;
             my $foreach_range = $2;
             if ($foreach_range =~ /\@ARGV/) {
@@ -125,6 +140,12 @@ sub conversion {
                   splice(@python, 1, 0, "import fileinput\n");
                   $fileinput_flag = 1;
                }
+            } elsif ($foreach_range =~ /<STDIN>/) {
+               $foreach_range =~ s/<STDIN>/sys.stdin/;
+               if (!$sys_flag) {
+                  splice(@python, 1, 0, "import sys\n");
+                  $sys_flag = 1;
+               }
             }
             
             $convert[$i] = "for $foreach_variable in $foreach_range:\n";
@@ -132,9 +153,9 @@ sub conversion {
          
          # If the statement begins with a }, push everything after to the next line and continue on
          #if ($convert[$i] =~ /^\s*}\s*(elsif.*)$/ || $convert[$i] =~ /^\s*}\s*(else.*)$/) {
-         #   print "$1\n";
-          #  splice(@convert, $i, 1, "}\n");
-          #  splice(@convert, $i + 1, 0, "$1\n");
+         #  print "$1\n";
+         #   splice(@convert, $i, 1, "}\n");
+         #   splice(@convert, $i + 1, 0, "$1\n");
          #}
          # If/while statement
          if ($convert[$i] =~ /^\s*(if|while|elsif|else)/) {
@@ -142,6 +163,7 @@ sub conversion {
             $convert[$i] =~ s/\s*{/:/;
          
          } elsif ($convert[$i] =~ /^\s*\}?\s*(elsif|else)/) {
+            print "$1\n";
             $convert[$i] =~ tr/$()//d;
             $convert[$i] =~ s/\s*{/:/;
             $convert[$i] =~ s/elsif/elif/;
@@ -168,16 +190,16 @@ sub conversion {
          my @block;
          while ($block_count > 0) {
             $i++;
-            push(@block, $convert[$i]);
-            if ($convert[$i] =~ /{/) {
+            if ($convert[$i] =~ /\{/) {
                $block_count++;
-            } elsif ($convert[$i] =~ /}/) {
+            } elsif ($convert[$i] =~ /\}/) {
                $block_count--;
             }
+            push(@block, $convert[$i]);
          }
          
          $indent_count++;
-         $convert[$i] =~ s/^\s+//;
+         #$convert[$i] =~ s/^\s+//;
          conversion($indent_count, @block);
          $indent_count--;
          
@@ -212,20 +234,19 @@ sub conversion {
             splice(@python, 1, 0, "import re\n");
             $re_flag = 1;
          }
+         
+      } elsif ($convert[$i] =~ /\$(.*)(\+\+|\-\-)/) {
+         my $variable = $1;
+         my $plusminus_one = $2;
+         $plusminus_one =~ s/\+\+/+= 1/;
+         $plusminus_one =~ s/\-\-/-= 1/;
+         $convert[$i] = "$variable $plusminus_one\n";
       
       # Lines we can't translate are turned into comments
       } else {
          $convert[$i] = "# $convert[$i]";
       }
       
-      # Other stuff that applies to any kind of line
-      if ($convert[$i] =~ /\@ARGV/) {
-         $convert[$i] =~ s/\@ARGV/sys\.argv\[1\:\]/;
-         if ($sys_flag == 0) {
-            splice(@python, 1, 0, "import sys\n");
-            $sys_flag = 1;
-         }
-      }
       
       # Change ARGV
       if ($convert[$i] =~ /ARGV/) {
@@ -258,7 +279,7 @@ sub conversion {
       }
       
       # Writing the transformed line to our Python array
-      if ($convert[$i] =~ /^\s*#?\s*}\s*/) {
+      if ($convert[$i] =~ /^\s*#?\s*}\s*$/) {
          next;
       }
       if ($convert[$i] !~ /^\s*$/) {
