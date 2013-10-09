@@ -22,6 +22,8 @@ if (@ARGV == 1) {
 
 my @python;
 my $sys_flag = 0;
+my $fileinput_flag = 0;
+my $re_flag = 0;
 
 sub conversion {
    my ($indent_count, @convert) = @_;
@@ -40,7 +42,7 @@ sub conversion {
          my $constant = uc $1;
 		   $convert[$i] = "$constant = $2\n";
 		
-		# Variables
+		# Scalar Variables
 	   } elsif ($convert[$i] =~ /^\s*(my )?[\$](.*) = (.*);$/) {
 	      
 	      my $varName = $2;
@@ -58,6 +60,10 @@ sub conversion {
 	      }
 	      
          $convert[$i] = "$varName = $value\n";
+         
+      # Arrays
+      } elsif ($convert[$i] =~ /^\s*(my )?[\@](.*) = (.*);$/) {
+         
       
       # Print
       } elsif ($convert[$i] =~ /^\s*print/) {
@@ -94,6 +100,36 @@ sub conversion {
       # Loops   
       } elsif ($convert[$i] =~ /^\s*(if|while|for|foreach|elsif|else|unless)/) {
          
+         # Foreach loop
+         if ($convert[$i] =~ /^\s*foreach\s*\$(.*?)\s*\((.*?)\)/ || $convert[$i] =~ /^\s*while \(\$(.*?) = (<>)\)/) {
+            my $foreach_variable = $1;
+            my $foreach_range = $2;
+            if ($foreach_range =~ /\@ARGV/) {
+               $foreach_range = 'sys.argv[1:]';
+            } elsif ($foreach_range =~ /^(\d)\.\.(\d)$/) {
+               my $xrange_end = $2 + 1;
+               $foreach_range = "xrange($1, $xrange_end)";
+            } elsif ($foreach_range =~ /^(0)\.\.\$\#(.*)$/) {
+               my $looped_array = $2;
+               if ($looped_array =~ /^ARGV$/) {
+                  $looped_array = "sys.argv";
+                  if (!$sys_flag) {
+                     splice(@python, 1, 0, "import sys\n");
+                     $sys_flag = 1;
+                  }
+               }
+               $foreach_range = "xrange(len($looped_array) - 1)"
+            } elsif ($foreach_range =~ /<>/) {
+               $foreach_range =~ s/<>/fileinput.input()/;
+               if (!$fileinput_flag) {
+                  splice(@python, 1, 0, "import fileinput\n");
+                  $fileinput_flag = 1;
+               }
+            }
+            
+            $convert[$i] = "for $foreach_variable in $foreach_range:\n";
+         }
+         
          # If the statement begins with a }, push everything after to the next line and continue on
          #if ($convert[$i] =~ /^\s*}\s*(elsif.*)$/ || $convert[$i] =~ /^\s*}\s*(else.*)$/) {
          #   print "$1\n";
@@ -114,30 +150,6 @@ sub conversion {
          # For loop
          if ($convert[$i] =~ /^\s*for/) {
          
-         }
-         
-         # Foreach loop
-         if ($convert[$i] =~ /^\s*foreach\s*\$(.*?)\s*\((.*?)\)/) {
-            my $foreach_variable = $1;
-            my $foreach_range = $2;
-            if ($foreach_range =~ /\@ARGV/) {
-               $foreach_range = 'sys.argv[1:]';
-            } elsif ($foreach_range =~ /^(\d)\.\.(\d)$/) {
-               my $xrange_end = $2 + 1;
-               $foreach_range = "xrange($1, $xrange_end)";
-            } elsif ($foreach_range =~ /^(0)\.\.\$\#(.*)$/) {
-               my $looped_array = $2;
-               if ($looped_array =~ /^ARGV$/) {
-                  $looped_array = "sys.argv";
-                  if (!$sys_flag) {
-                     splice(@python, 1, 0, "import sys\n");
-                     $sys_flag = 1;
-                  }
-               }
-               $foreach_range = "xrange(len($looped_array) - 1)"
-            }
-            
-            $convert[$i] = "for $foreach_variable in $foreach_range:\n";
          }
          
          # Change string comparison operators to make them compatible with Python
@@ -187,6 +199,20 @@ sub conversion {
          $chomp_var =~ tr/$//d;
          $convert[$i] = "$chomp_var = $chomp_var.rstrip()\n";
       
+      # Regular expressions   
+      } elsif ($convert[$i] =~ /^\s*\$(.*?)\s*=~\s*(.*?)\/(.*?)\/(.*?)(\/(.*?))?;$/) {
+         if ($2 eq 'm') {
+            $convert[$i] = "line = re.match(r\'$3\', $1)\n";
+         
+         } elsif ($2 eq 's' || $2 eq 'tr') {
+            $convert[$i] = "line = re.sub(r\'$3\', \'$4\', $1)\n";
+         }
+         
+         if (!$re_flag) {
+            splice(@python, 1, 0, "import re\n");
+            $re_flag = 1;
+         }
+      
       # Lines we can't translate are turned into comments
       } else {
          $convert[$i] = "# $convert[$i]";
@@ -201,6 +227,7 @@ sub conversion {
          }
       }
       
+      # Change ARGV
       if ($convert[$i] =~ /ARGV/) {
          if ($convert[$i] =~ /\@ARGV/) {
             $convert[$i] =~ s/\@ARGV/sys\.argv\[1\:\]/;
@@ -213,6 +240,15 @@ sub conversion {
          if (!$sys_flag) {
             splice(@python, 1, 0, "import sys\n");
             $sys_flag = 1;
+         }
+      }
+      
+      # Change <>
+      if ($convert[$i] =~ /<>/) {
+         $convert[$i] =~ s/<>/fileinput.input()/;
+         if (!$fileinput_flag) {
+            splice(@python, 1, 0, "import fileinput\n");
+            $fileinput_flag = 1;
          }
       }
       
