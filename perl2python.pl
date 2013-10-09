@@ -121,7 +121,14 @@ sub conversion {
             } elsif ($foreach_range =~ /^(\d)\.\.(\d)$/) {
                my $xrange_end = $2 + 1;
                $foreach_range = "xrange($1, $xrange_end)";
+            } elsif ($foreach_range =~ /^(0)\.\.\$\#(.*)$/) {
+               my $looped_array = $2;
+               if ($looped_array =~ /^ARGV$/) {
+                  $looped_array = "sys.argv";
+               }
+               $foreach_range = "xrange(len($looped_array) - 1)"
             }
+            
             $convert[$i] = "for $foreach_variable in $foreach_range:\n";
          }
          
@@ -151,7 +158,7 @@ sub conversion {
          
          $indent_count++;
          $convert[$i] =~ s/^\s+//;
-         push(@block, conversion($indent_count, @block));
+         conversion($indent_count, @block);
          $indent_count--;
          
       # last
